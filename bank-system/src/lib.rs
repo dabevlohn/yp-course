@@ -1,7 +1,6 @@
-//pub mod storage;
-// pub struct Storage {
-//     accounts: HashMap<Name, Balance>,
-// }
+pub mod storage;
+
+pub type Name = String;
 
 #[derive(Debug, Clone)]
 pub struct Transaction {
