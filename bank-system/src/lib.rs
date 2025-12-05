@@ -24,7 +24,6 @@ pub struct Wallet {
 }
 
 impl Wallet {
-    // update принимает транзакции, возвращает количество транзакций, которые относились к этому кошельку
     pub fn update(
         &mut self,
         transactions: impl IntoIterator<Item = Transaction, IntoIter: Clone>,
