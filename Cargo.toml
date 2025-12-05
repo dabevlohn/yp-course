@@ -1,0 +1,15 @@
+[workspace.package]
+rust-version = "1.91"
+
+[workspace]
+resolver = "2"
+members = [
+    "bank-system",
+    "my-bank",
+]
+
+[workspace.metadata.publish]
+order = [
+    "bank-system",
+    "my-bank",
+]
