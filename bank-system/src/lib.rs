@@ -3,8 +3,6 @@
 //     accounts: HashMap<Name, Balance>,
 // }
 
-pub type Name = String;
-
 #[derive(Debug, Clone)]
 pub struct Transaction {
     pub id: u128,
@@ -65,7 +63,8 @@ impl Balance {
     // fn process<'a>(&mut self, impl IntoIterator<Item=&'a OpKind>) -> Vec<&'a OpKind>
     // Пробуйте, дерзайте!
     pub fn process<'a>(&mut self, ops: &[&'a OpKind]) -> Vec<&'a OpKind> {
-        let mut remaining = ops.into_iter();
+        //let mut remaining = ops.into_iter();
+        let mut remaining = ops.iter();
         let mut bad_ops = Vec::new();
         for op in &mut remaining {
             match op {
@@ -75,7 +74,8 @@ impl Balance {
                 OpKind::Withdraw(value) if self.0 > *value as u64 => {
                     self.0 -= *value as u64;
                 }
-                other @ _ => {
+                //other @ _ => {
+                other => {
                     bad_ops.push(*other);
                     break;
                 }
