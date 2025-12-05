@@ -1,4 +1,6 @@
-use bank_system::{Balance, OpKind, Transaction, Wallet};
+use bank_system::{
+    storage::inmem::Storage, Balance, OpKind, Transaction, Wallet,
+};
 
 fn main() {
     // допустим, latest_history был загружен из файла
@@ -40,12 +42,47 @@ fn main() {
     assert_eq!(wallet.update(updates2), 2);
     assert_eq!(wallet.ballance, 250);
 
-    let ops = [
-        &OpKind::Deposit(32),
-        &OpKind::Withdraw(64),
-        &OpKind::CloseAccount,
-    ];
-    let bad_ops = Balance(0).process(&ops);
-    assert_eq!(bad_ops.len(), 2);
-    println!("{:?}", bad_ops);
+    let storage = Storage {
+        accounts: [
+            (
+                "Dad".to_string(),
+                Balance {
+                    result: 0,
+                    last_ops: vec![
+                        OpKind::Deposit(200000),
+                        OpKind::Withdraw(100000),
+                    ],
+                },
+            ),
+            (
+                "Mom".to_string(),
+                Balance {
+                    result: 0,
+                    last_ops: vec![
+                        OpKind::Deposit(120000),
+                        OpKind::Withdraw(50000),
+                        OpKind::Withdraw(20000),
+                    ],
+                },
+            ),
+            (
+                "Son".to_string(),
+                Balance {
+                    result: 0,
+                    last_ops: vec![
+                        OpKind::Deposit(5000),
+                        OpKind::Withdraw(500),
+                        OpKind::Withdraw(1000),
+                        OpKind::Withdraw(700),
+                    ],
+                },
+            ),
+        ]
+        .into_iter()
+        .collect(),
+    };
+    println!(
+        r#"best factor for "{}"!"#,
+        Balance::find_best(&storage).unwrap().0
+    );
 }

@@ -1,3 +1,5 @@
+use storage::inmem::Storage;
+
 pub mod storage;
 
 pub type Name = String;
@@ -52,35 +54,46 @@ pub enum OpKind {
     CloseAccount,
 } // вот и всё, никаких посторонних операций и данных!
 
-// обернём баланс в новый тип, чтобы можно было реализовывать метод
-// и запретим балансу опускаться ниже нуля
-pub struct Balance(pub u64);
+#[derive(Debug)]
+pub struct Balance {
+    pub result: u64,
+    pub last_ops: Vec<OpKind>,
+}
 
 impl Balance {
-    // Можно пойти ещё дальше и в качестве аргумента принимать любой тип,
-    // который может итерироваться по OpKind, с помощью дженерика:
-    // fn process<'a>(&mut self, impl IntoIterator<Item=&'a OpKind>) -> Vec<&'a OpKind>
-    // Пробуйте, дерзайте!
-    pub fn process<'a>(&mut self, ops: &[&'a OpKind]) -> Vec<&'a OpKind> {
-        //let mut remaining = ops.into_iter();
-        let mut remaining = ops.iter();
-        let mut bad_ops = Vec::new();
-        for op in &mut remaining {
-            match op {
-                OpKind::Deposit(value) => {
-                    self.0 += *value as u64;
-                }
-                OpKind::Withdraw(value) if self.0 > *value as u64 => {
-                    self.0 -= *value as u64;
-                }
-                //other @ _ => {
-                other => {
-                    bad_ops.push(*other);
-                    break;
+    pub fn find_best(storage: &Storage) -> Option<(&str, f32)> {
+        if storage.accounts.is_empty() {
+            return None;
+        }
+        let mut best_factor = f32::MIN;
+        let mut best_name = "";
+        for (name, balance) in &storage.accounts {
+            let mut all_positive = 0;
+            for op in &balance.last_ops {
+                // match op {
+                //     OpKind::Deposit(value) => all_positive += *value as u64,
+                //     _ => (),
+                // }
+                if let OpKind::Deposit(value) = op {
+                    all_positive += *value as u64
                 }
             }
+            // почти то же самое на итераторах!
+            let all_negative: u64 = balance
+                .last_ops
+                .iter()
+                .filter_map(|op| match op {
+                    OpKind::Withdraw(value) => Some(*value as u64),
+                    _ => None,
+                })
+                .sum();
+            let factor = all_positive as f32 / all_negative as f32;
+            if factor > best_factor {
+                best_factor = factor;
+                // best_name = &name;
+                best_name = name;
+            }
         }
-        bad_ops.extend(remaining);
-        bad_ops
+        Some((best_name, best_factor))
     }
 }
