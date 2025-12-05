@@ -1,8 +1,24 @@
 use bank_system::{
-    storage::inmem::Storage, Balance, OpKind, Transaction, Wallet,
+    errors::{BalanceManager, BalanceManagerError},
+    storage::inmem::Storage,
+    Balance, Name, OpKind, Transaction, Wallet,
 };
 
-fn main() {
+fn process_if_deposit(
+    storage: &mut Storage,
+    is_deposit_and_sums: &[(bool, Name, Balance)],
+) -> Result<(), BalanceManagerError> {
+    for (is_deposit, name, sum) in is_deposit_and_sums {
+        if *is_deposit {
+            storage.deposit(name, sum)?;
+        } else {
+            storage.withdraw(name, sum)?;
+        }
+    }
+    Ok(())
+}
+
+fn main() -> Result<(), BalanceManagerError> {
     // допустим, latest_history был загружен из файла
     let latest_history: Vec<Transaction> = vec![
         (0, 32, 100).into(),
@@ -42,7 +58,7 @@ fn main() {
     assert_eq!(wallet.update(updates2), 2);
     assert_eq!(wallet.ballance, 250);
 
-    let storage = Storage {
+    let mut storage = Storage {
         accounts: [
             (
                 "Dad".to_string(),
@@ -81,8 +97,19 @@ fn main() {
         .into_iter()
         .collect(),
     };
-    println!(
-        r#"best factor for "{}"!"#,
-        Balance::find_best(&storage).unwrap().0
-    );
+    let is_deposit_and_sums = [(
+        true,
+        "Son".to_string(),
+        Balance {
+            result: 5,
+            last_ops: Vec::new(),
+        },
+    )];
+    process_if_deposit(&mut storage, &is_deposit_and_sums)?;
+    if let Some((name, _)) = Balance::find_best(&storage) {
+        println!(r#"best factor for "{}"!"#, name);
+    } else {
+        println!("storage is empty");
+    }
+    Ok(())
 }

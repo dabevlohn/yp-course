@@ -1,5 +1,6 @@
 use storage::inmem::Storage;
 
+pub mod errors;
 pub mod storage;
 
 pub type Name = String;
@@ -44,7 +45,7 @@ impl Wallet {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum OpKind {
     // пополнить/потратить счёт
     Deposit(u32),
@@ -53,7 +54,7 @@ pub enum OpKind {
     CloseAccount,
 } // вот и всё, никаких посторонних операций и данных!
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Balance {
     pub result: u64,
     pub last_ops: Vec<OpKind>,
