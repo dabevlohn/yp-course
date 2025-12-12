@@ -1,7 +1,7 @@
 use bank_system::Name;
 use bank_system::{
     storage::Storage,
-    transaction::{Deposit, Transaction},
+    transaction::{Deposit, Transaction, Transfer},
 };
 use std::io::{self, BufRead, Write};
 
@@ -14,6 +14,7 @@ fn main() {
     println!("  remove <name>             - удалить пользователя");
     println!("  deposit <name> <amount>   - пополнить баланс");
     println!("  withdraw <name> <amount>  - снять со счёта");
+    println!("  transfer <name> <name> <amount>  - перевести");
     println!("  balance <name>            - показать баланс");
     println!("  exit                      - выйти");
 
@@ -121,6 +122,37 @@ fn main() {
                         storage.save("balance.csv");
                     }
                     Err(e) => println!("Ошибка: {}", e),
+                }
+            }
+            "transfer" => {
+                if args.len() != 4 {
+                    println!("Пример: transfer Alice Bob 50");
+                    continue;
+                }
+                let from = args[1].to_string();
+                let to = args[2].to_string();
+                let amount: i64 = match args[3].parse() {
+                    Ok(a) => a,
+                    Err(_) => {
+                        println!("Сумма должна быть числом");
+                        continue;
+                    }
+                };
+
+                let tx = Transfer {
+                    from: from.clone(),
+                    to: to.clone(),
+                    amount,
+                };
+                match tx.apply(&mut storage) {
+                    Ok(_) => {
+                        println!(
+                            "Транзакция: перевод {} -> {} на {}",
+                            from, to, amount
+                        );
+                        storage.save("balance.csv");
+                    }
+                    Err(e) => println!("Ошибка транзакции: {:?}", e),
                 }
             }
             "balance" => {
