@@ -1,7 +1,6 @@
 use bank_system::{
-    errors::{BalanceManager, BalanceManagerError},
-    storage::inmem::Storage,
-    Balance, Name, OpKind, Transaction, Wallet,
+    errors::BalanceManagerError, storage::inmem::Storage, Balance, Name,
+    Transaction, Wallet,
 };
 
 fn process_if_deposit(
@@ -10,9 +9,9 @@ fn process_if_deposit(
 ) -> Result<(), BalanceManagerError> {
     for (is_deposit, name, sum) in is_deposit_and_sums {
         if *is_deposit {
-            storage.deposit(name, sum)?;
+            storage.deposit(name, *sum)?;
         } else {
-            storage.withdraw(name, sum)?;
+            storage.withdraw(name, *sum)?;
         }
     }
     Ok(())
@@ -62,58 +61,8 @@ fn main() -> Result<(), BalanceManagerError> {
     //    assert_eq!(wallet.update(updates2), 2);
     //    assert_eq!(wallet.ballance, 250);
 
-    let mut storage = Storage {
-        accounts: [
-            (
-                "Dad".to_string(),
-                Balance {
-                    result: 0,
-                    last_ops: vec![
-                        OpKind::Deposit(200000),
-                        OpKind::Withdraw(100000),
-                    ],
-                },
-            ),
-            (
-                "Mom".to_string(),
-                Balance {
-                    result: 0,
-                    last_ops: vec![
-                        OpKind::Deposit(120000),
-                        OpKind::Withdraw(50000),
-                        OpKind::Withdraw(20000),
-                    ],
-                },
-            ),
-            (
-                "Son".to_string(),
-                Balance {
-                    result: 0,
-                    last_ops: vec![
-                        OpKind::Deposit(5000),
-                        OpKind::Withdraw(500),
-                        OpKind::Withdraw(1000),
-                        OpKind::Withdraw(700),
-                    ],
-                },
-            ),
-        ]
-        .into_iter()
-        .collect(),
-    };
-    let is_deposit_and_sums = [(
-        true,
-        "Son".to_string(),
-        Balance {
-            result: 5,
-            last_ops: Vec::new(),
-        },
-    )];
+    let mut storage = Storage::new();
+    let is_deposit_and_sums = [(true, "Son".to_string(), 5)];
     process_if_deposit(&mut storage, &is_deposit_and_sums)?;
-    if let Some((name, _)) = Balance::find_best(&storage) {
-        println!(r#"best factor for "{}"!"#, name);
-    } else {
-        println!("storage is empty");
-    }
     Ok(())
 }

@@ -4,6 +4,7 @@ pub mod errors;
 pub mod storage;
 
 pub type Name = String;
+pub type Balance = i64;
 
 #[derive(Debug, Clone)]
 pub struct Transaction {
@@ -53,47 +54,3 @@ pub enum OpKind {
     // закрыть аккаунт - все средства выведены
     CloseAccount,
 } // вот и всё, никаких посторонних операций и данных!
-
-#[derive(Debug, Clone)]
-pub struct Balance {
-    pub result: u64,
-    pub last_ops: Vec<OpKind>,
-}
-
-impl Balance {
-    pub fn find_best(storage: &Storage) -> Option<(&str, f32)> {
-        if storage.accounts.is_empty() {
-            return None;
-        }
-        let mut best_factor = f32::MIN;
-        let mut best_name = "";
-        for (name, balance) in &storage.accounts {
-            let mut all_positive = 0;
-            for op in &balance.last_ops {
-                // match op {
-                //     OpKind::Deposit(value) => all_positive += *value as u64,
-                //     _ => (),
-                // }
-                if let OpKind::Deposit(value) = op {
-                    all_positive += *value as u64
-                }
-            }
-            // почти то же самое на итераторах!
-            let all_negative: u64 = balance
-                .last_ops
-                .iter()
-                .filter_map(|op| match op {
-                    OpKind::Withdraw(value) => Some(*value as u64),
-                    _ => None,
-                })
-                .sum();
-            let factor = all_positive as f32 / all_negative as f32;
-            if factor > best_factor {
-                best_factor = factor;
-                // best_name = &name;
-                best_name = name;
-            }
-        }
-        Some((best_name, best_factor))
-    }
-}
