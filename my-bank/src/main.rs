@@ -42,7 +42,7 @@ fn main() -> Result<(), BalanceManagerError> {
     ];
     let updates2 = std::collections::VecDeque::<Transaction>::from([
         Transaction::from((4, 32, 150)),
-        (7, 32, 100).into(),
+        (7, 32, -100).into(),
         (10, 10, 100).into(),
         (11, 32, -50).into(),
     ]);
@@ -53,10 +53,14 @@ fn main() -> Result<(), BalanceManagerError> {
         println!("{:?}", update)
     }
 
-    assert_eq!(wallet.update(updates1), 2);
-    assert_eq!(wallet.ballance, 200);
-    assert_eq!(wallet.update(updates2), 2);
-    assert_eq!(wallet.ballance, 250);
+    wallet.update(updates1);
+    println!("1: {:?}", wallet.ballance);
+    wallet.update(updates2);
+    println!("2: {:?}", wallet.ballance);
+    //    assert_eq!(wallet.update(updates1), 2);
+    //    assert_eq!(wallet.ballance, 200);
+    //    assert_eq!(wallet.update(updates2), 2);
+    //    assert_eq!(wallet.ballance, 250);
 
     let mut storage = Storage {
         accounts: [

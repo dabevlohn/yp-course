@@ -20,7 +20,7 @@ impl From<(u128, u128, i64)> for Transaction {
 
 pub struct Wallet {
     pub id: u128,
-    pub ballance: u64,
+    pub ballance: i64,
     pub latest_history: Vec<Transaction>,
 }
 
@@ -34,7 +34,7 @@ impl Wallet {
                 && self.latest_history.iter().all(|hist| hist.id != t.id)
         });
         let count_usize = filtered.clone().count();
-        self.ballance += filtered.clone().map(|t| t.sum).sum::<i64>() as u64;
+        self.ballance += filtered.clone().map(|t| t.sum).sum::<i64>();
         let filtered_transactions_vec = filtered.collect::<Vec<_>>();
         println!(
             "Updated with {} transactions: {:?}",
