@@ -1,6 +1,4 @@
 use bank_system::storage::csvfile::Storage;
-// use bank_system::users::user_manager::UserManager;
-// use bank_system::balance::balance_manager::BalanceManager;
 use bank_system::Name;
 use std::env;
 
