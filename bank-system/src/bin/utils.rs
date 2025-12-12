@@ -1,5 +1,8 @@
-use bank_system::storage::csvfile::Storage;
 use bank_system::Name;
+use bank_system::{
+    storage::Storage,
+    transaction::{Deposit, Transaction},
+};
 use std::io::{self, BufRead, Write};
 
 fn main() {
@@ -82,15 +85,18 @@ fn main() {
                         continue;
                     }
                 };
-                match storage.deposit(&name, amount) {
+
+                let tx = Deposit {
+                    account: name.clone(),
+                    amount,
+                };
+                // Применяем транзакцию
+                match tx.apply(&mut storage) {
                     Ok(_) => {
-                        println!(
-                            "Баланс пользователя {} увеличен на {}",
-                            name, amount
-                        );
+                        println!("Транзакция: депозит {} на {}", name, amount);
                         storage.save("balance.csv");
                     }
-                    Err(e) => println!("Ошибка: {}", e),
+                    Err(e) => println!("Ошибка транзакции: {:?}", e),
                 }
             }
             "withdraw" => {

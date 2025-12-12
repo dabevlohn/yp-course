@@ -1,14 +1,10 @@
-use crate::{errors::BalanceManagerError, Balance, Name};
+use crate::{errors::BalanceManagerError, Balance, Name, Storage};
+use std::collections::HashMap;
 use std::{
-    collections::HashMap,
     fs::{self, File},
     io::{BufRead, BufReader},
     path::Path,
 };
-
-pub struct Storage {
-    pub accounts: HashMap<Name, Balance>,
-}
 
 impl Storage {
     /// Создаёт новый пустой банк

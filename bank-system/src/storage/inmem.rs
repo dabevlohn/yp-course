@@ -1,9 +1,4 @@
 use crate::{errors::BalanceManagerError, Balance, Name};
-use std::collections::HashMap;
-
-pub struct Storage {
-    pub accounts: HashMap<Name, Balance>,
-}
 
 impl Storage {
     /// Создаёт новый пустой банк

@@ -1,4 +1,4 @@
-use bank_system::storage::csvfile::Storage;
+use bank_system::storage::Storage;
 use bank_system::Name;
 use std::env;
 

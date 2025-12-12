@@ -1,6 +1,6 @@
 use bank_system::{
-    errors::BalanceManagerError, storage::inmem::Storage, Balance, Name,
-    Transaction, Wallet,
+    errors::BalanceManagerError, storage::Storage, Balance, Name, Transaction,
+    Wallet,
 };
 
 fn process_if_deposit(

@@ -1,7 +1,8 @@
-use storage::inmem::Storage;
+use crate::storage::Storage;
 
 pub mod errors;
 pub mod storage;
+pub mod transaction;
 
 pub type Name = String;
 pub type Balance = i64;
