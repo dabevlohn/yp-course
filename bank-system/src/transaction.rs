@@ -23,6 +23,22 @@ impl Transaction for Deposit {
     }
 }
 
+pub struct Withdraw {
+    pub account: String,
+    pub amount: i64,
+}
+
+impl Transaction for Withdraw {
+    fn apply(&self, storage: &mut Storage) -> Result<(), TxError> {
+        let balance = storage.accounts.entry(self.account.clone()).or_insert(0);
+        if *balance < self.amount {
+            return Err(TxError::InsufficientFunds);
+        }
+        *balance -= self.amount;
+        Ok(())
+    }
+}
+
 pub struct Transfer {
     pub from: String,
     pub to: String,

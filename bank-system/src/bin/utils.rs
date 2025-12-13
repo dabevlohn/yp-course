@@ -1,3 +1,4 @@
+use bank_system::transaction::Withdraw;
 use bank_system::Name;
 use bank_system::{
     storage::Storage,
@@ -113,7 +114,13 @@ fn main() {
                         continue;
                     }
                 };
-                match storage.withdraw(&name, amount) {
+                let tx = Withdraw {
+                    account: name.clone(),
+                    amount,
+                };
+                // Применяем транзакцию
+                match tx.apply(&mut storage) {
+                    //match storage.withdraw(&name, amount) {
                     Ok(_) => {
                         println!(
                             "С баланса пользователя {} снято {}",
@@ -121,7 +128,7 @@ fn main() {
                         );
                         storage.save("balance.csv");
                     }
-                    Err(e) => println!("Ошибка: {}", e),
+                    Err(e) => println!("Ошибка: {:?}", e),
                 }
             }
             "transfer" => {
