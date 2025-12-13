@@ -1,3 +1,5 @@
+use my_macros::Transaction;
+
 use crate::Storage;
 
 #[derive(Debug)]
@@ -10,50 +12,24 @@ pub trait Transaction {
     fn apply(&self, accounts: &mut Storage) -> Result<(), TxError>;
 }
 
+#[derive(Transaction)]
+// тут не нужно указывать #[transaction("deposit")], так как это значение по умолчанию
 pub struct Deposit {
     pub account: String,
     pub amount: i64,
 }
 
-impl Transaction for Deposit {
-    fn apply(&self, storage: &mut Storage) -> Result<(), TxError> {
-        *storage.accounts.entry(self.account.clone()).or_insert(0) +=
-            self.amount;
-        Ok(())
-    }
-}
-
+#[derive(Transaction)]
+#[transaction("withdraw")]
 pub struct Withdraw {
     pub account: String,
     pub amount: i64,
 }
 
-impl Transaction for Withdraw {
-    fn apply(&self, storage: &mut Storage) -> Result<(), TxError> {
-        let balance = storage.accounts.entry(self.account.clone()).or_insert(0);
-        if *balance < self.amount {
-            return Err(TxError::InsufficientFunds);
-        }
-        *balance -= self.amount;
-        Ok(())
-    }
-}
-
+#[derive(Transaction)]
+#[transaction("transfer")]
 pub struct Transfer {
     pub from: String,
     pub to: String,
     pub amount: i64,
-}
-
-impl Transaction for Transfer {
-    fn apply(&self, storage: &mut Storage) -> Result<(), TxError> {
-        let from_balance =
-            storage.accounts.entry(self.from.clone()).or_insert(0);
-        if *from_balance < self.amount {
-            return Err(TxError::InsufficientFunds);
-        }
-        *from_balance -= self.amount;
-        *storage.accounts.entry(self.to.clone()).or_insert(0) += self.amount;
-        Ok(())
-    }
 }
