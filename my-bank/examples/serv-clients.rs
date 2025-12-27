@@ -1,310 +1,258 @@
-use std::sync::{
-    atomic::{AtomicUsize, Ordering},
-    mpsc, Arc, RwLock,
-};
+use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::{Arc, Mutex};
 use std::thread;
+use std::time::Duration;
 
-#[derive(Debug)]
-enum MessageKind {
-    FinishAll,
-    NewServer,
-    Work { work_spec: String },
-    ChangeEpoch { epoch: String },
+// ============================================================================
+// Типы и структуры данных
+// ============================================================================
+
+#[derive(Clone, Debug)]
+pub enum Command {
+    IncrementCounter,
+    SetEpoch(String),
+    SpawnServer,
+    ShutdownAll,
 }
 
-fn serve(
-    rx: mpsc::Receiver<(usize, MessageKind)>,
+/// Общее состояние, разделяемое между серверами
+#[derive(Clone)]
+pub struct SharedState {
+    counter: Arc<Mutex<u64>>,
+    epoch: Arc<Mutex<String>>,
+}
+
+impl SharedState {
+    pub fn new() -> Self {
+        SharedState {
+            counter: Arc::new(Mutex::new(0)),
+            epoch: Arc::new(Mutex::new("epoch_0".to_string())),
+        }
+    }
+
+    pub fn increment_counter(&self) {
+        let mut cnt = self.counter.lock().unwrap();
+        *cnt += 1;
+    }
+
+    pub fn set_epoch(&self, epoch: String) {
+        let mut ep = self.epoch.lock().unwrap();
+        *ep = epoch;
+    }
+
+    pub fn get_state(&self) -> (u64, String) {
+        let cnt = *self.counter.lock().unwrap();
+        let ep = self.epoch.lock().unwrap().clone();
+        (cnt, ep)
+    }
+}
+
+// ============================================================================
+// Сервер (обработчик событий в отдельном потоке)
+// ============================================================================
+
+pub struct Server {
     id: usize,
-    success_count: Arc<AtomicUsize>,
-    epoch: Arc<RwLock<String>>,
-) {
-    while let Ok((from, msg_kind)) = rx.recv() {
-        match msg_kind {
-            MessageKind::FinishAll => break,
-            MessageKind::NewServer => {
-                unreachable!("this message is not for server!")
+    state: SharedState,
+    rx: Receiver<Command>,
+}
+
+impl Server {
+    pub fn new(id: usize, state: SharedState, rx: Receiver<Command>) -> Self {
+        Server { id, state, rx }
+    }
+
+    /// Запускает сервер в отдельном потоке
+    pub fn run(self) -> thread::JoinHandle<()> {
+        thread::spawn(move || {
+            println!("[Server {}] Started", self.id);
+            let mut running = true;
+
+            while running {
+                // Блокирующий recv с таймаутом для проверки команд
+                match self.rx.recv_timeout(Duration::from_millis(100)) {
+                    Ok(cmd) => match cmd {
+                        Command::IncrementCounter => {
+                            self.state.increment_counter();
+                            let (cnt, epoch) = self.state.get_state();
+                            println!(
+                                    "[Server {}] IncrementCounter -> counter={}, epoch={}",
+                                    self.id, cnt, epoch
+                                );
+                        }
+                        Command::SetEpoch(new_epoch) => {
+                            self.state.set_epoch(new_epoch.clone());
+                            let (cnt, epoch) = self.state.get_state();
+                            println!(
+                                "[Server {}] SetEpoch -> counter={}, epoch={}",
+                                self.id, cnt, epoch
+                            );
+                        }
+                        Command::ShutdownAll => {
+                            println!("[Server {}] Shutting down...", self.id);
+                            running = false;
+                        }
+                        Command::SpawnServer => {
+                            println!("[Server {}] SpawnServer command received but ignored by server", self.id);
+                        }
+                    },
+                    Err(mpsc::RecvTimeoutError::Timeout) => {
+                        // Таймаут, продолжаем опрос
+                    }
+                    Err(mpsc::RecvTimeoutError::Disconnected) => {
+                        println!(
+                            "[Server {}] Channel disconnected, shutting down",
+                            self.id
+                        );
+                        running = false;
+                    }
+                }
             }
-            MessageKind::ChangeEpoch { epoch: new_epoch } => {
-                let mut lock = epoch.write().unwrap();
-                println!( "worker-{} is being asked by client-{} at epoch '{}' to change epoch into '{}'",
-                          id, from, lock, new_epoch );
-                *lock = new_epoch;
-            }
-            MessageKind::Work { work_spec } => {
-                println!( "worker-{} is being asked by client-{} at epoch '{}' to work '{}'",
-                          id, from, epoch.read().unwrap(), work_spec );
+
+            println!("[Server {}] Stopped", self.id);
+        })
+    }
+}
+
+// ============================================================================
+// Клиент (актор, отправляющий команды серверам)
+// ============================================================================
+
+pub struct Client {
+    state: SharedState,
+    server_handles: Vec<thread::JoinHandle<()>>,
+    server_senders: Vec<Sender<Command>>,
+    next_server_id: usize,
+}
+
+impl Client {
+    pub fn new(state: SharedState) -> Self {
+        Client {
+            state,
+            server_handles: Vec::new(),
+            server_senders: Vec::new(),
+            next_server_id: 0,
+        }
+    }
+
+    /// Порождает новый сервер с собственным каналом команд
+    pub fn spawn_server(&mut self) {
+        let (tx, rx) = mpsc::channel();
+        let server = Server::new(self.next_server_id, self.state.clone(), rx);
+        let handle = server.run();
+
+        self.server_senders.push(tx);
+        self.server_handles.push(handle);
+        self.next_server_id += 1;
+
+        println!("[Client] Spawned server #{}", self.next_server_id - 1);
+    }
+
+    /// Отправляет команду всем серверам
+    pub fn broadcast_command(&self, cmd: Command) {
+        for (i, tx) in self.server_senders.iter().enumerate() {
+            match tx.send(cmd.clone()) {
+                Ok(_) => println!("[Client] Sent {:?} to server {}", cmd, i),
+                Err(_) => {
+                    println!("[Client] Failed to send command to server {}", i)
+                }
             }
         }
-        success_count.fetch_add(1, Ordering::SeqCst);
-    }
-    println!("Finishing worker-{}", id);
-}
-
-fn balance(
-    rx: mpsc::Receiver<(usize, MessageKind)>,
-    servers_count: usize,
-    success_count: Arc<AtomicUsize>,
-) {
-    fn make_and_append_server(
-        all_servers: &mut Vec<(
-            mpsc::Sender<(usize, MessageKind)>,
-            thread::JoinHandle<()>,
-        )>,
-        success_count: Arc<AtomicUsize>,
-        epoch: Arc<RwLock<String>>,
-    ) {
-        let (tx, rx) = mpsc::channel();
-        let new_server_id = all_servers.len();
-        all_servers.push((
-            tx,
-            thread::spawn(move || {
-                serve(rx, new_server_id, success_count, epoch)
-            }),
-        ));
     }
 
-    let epoch = Arc::new(RwLock::new("epoch-1".into()));
-    let mut servers = Vec::new();
-    for _ in 0..servers_count {
-        make_and_append_server(
-            &mut servers,
-            success_count.clone(),
-            epoch.clone(),
+    /// Увеличивает счётчик на уровне клиента
+    pub fn increment_counter(&self) {
+        self.state.increment_counter();
+        let (cnt, epoch) = self.state.get_state();
+        println!(
+            "[Client] IncrementCounter -> counter={}, epoch={}",
+            cnt, epoch
         );
     }
-    let mut next_server = 0usize;
-    while let Ok((from, msg_kind)) = rx.recv() {
-        match msg_kind {
-            MessageKind::FinishAll => {
-                for (tx, _) in &servers {
-                    tx.send((from, MessageKind::FinishAll)).unwrap();
-                }
-                for (_, thread) in servers {
-                    thread.join().unwrap();
-                }
-                break;
-            }
-            MessageKind::NewServer => {
-                make_and_append_server(
-                    &mut servers,
-                    success_count.clone(),
-                    epoch.clone(),
-                );
-            }
-            MessageKind::Work { work_spec } => {
-                servers[next_server]
-                    .0
-                    .send((from, MessageKind::Work { work_spec }))
-                    .unwrap();
-            }
-            MessageKind::ChangeEpoch { epoch } => {
-                servers[next_server]
-                    .0
-                    .send((from, MessageKind::ChangeEpoch { epoch }))
-                    .unwrap();
-            }
+
+    /// Меняет эпоху на уровне клиента
+    pub fn set_epoch(&self, epoch: String) {
+        self.state.set_epoch(epoch.clone());
+        let (cnt, new_epoch) = self.state.get_state();
+        println!(
+            "[Client] SetEpoch({}) -> counter={}, epoch={}",
+            epoch, cnt, new_epoch
+        );
+    }
+
+    /// Отправляет команду завершения всем серверам и ждёт их окончания
+    pub fn shutdown_all(&mut self) {
+        println!("[Client] Sending shutdown command to all servers...");
+        self.broadcast_command(Command::ShutdownAll);
+
+        for a in self.server_handles.drain(..) {
+            a.join().unwrap();
+            println!("[Client] Server joined");
         }
-        next_server = (next_server + 1).rem_euclid(servers.len());
+        self.server_senders.clear();
+
+        println!("[Client] All servers shut down");
     }
 }
 
-fn my_sleep() {
-    thread::sleep(std::time::Duration::from_millis(10))
-}
-
-fn client1(server_tx: mpsc::Sender<(usize, MessageKind)>) {
-    let id = 1;
-    server_tx
-        .send((
-            id,
-            MessageKind::Work {
-                work_spec: "prepare".into(),
-            },
-        ))
-        .unwrap();
-    my_sleep();
-    server_tx
-        .send((
-            id,
-            MessageKind::Work {
-                work_spec: "work-1".into(),
-            },
-        ))
-        .unwrap();
-    my_sleep();
-    server_tx
-        .send((
-            id,
-            MessageKind::Work {
-                work_spec: "work-2".into(),
-            },
-        ))
-        .unwrap();
-    my_sleep();
-}
-fn client2(server_tx: mpsc::Sender<(usize, MessageKind)>) {
-    let id = 2;
-    server_tx
-        .send((
-            id,
-            MessageKind::Work {
-                work_spec: "prepare".into(),
-            },
-        ))
-        .unwrap();
-    my_sleep();
-    server_tx.send((id, MessageKind::NewServer)).unwrap();
-    my_sleep();
-    server_tx
-        .send((
-            id,
-            MessageKind::Work {
-                work_spec: "work-1".into(),
-            },
-        ))
-        .unwrap();
-    my_sleep();
-    server_tx
-        .send((
-            id,
-            MessageKind::Work {
-                work_spec: "work-2".into(),
-            },
-        ))
-        .unwrap();
-    my_sleep();
-    server_tx
-        .send((
-            id,
-            MessageKind::Work {
-                work_spec: "work-3".into(),
-            },
-        ))
-        .unwrap();
-    my_sleep();
-    server_tx
-        .send((
-            id,
-            MessageKind::Work {
-                work_spec: "work-4".into(),
-            },
-        ))
-        .unwrap();
-    my_sleep();
-    server_tx
-        .send((
-            id,
-            MessageKind::Work {
-                work_spec: "work-5".into(),
-            },
-        ))
-        .unwrap();
-    my_sleep();
-    server_tx
-        .send((
-            id,
-            MessageKind::Work {
-                work_spec: "work-6".into(),
-            },
-        ))
-        .unwrap();
-    my_sleep();
-}
-fn client3(server_tx: mpsc::Sender<(usize, MessageKind)>) {
-    let id = 3;
-    server_tx
-        .send((
-            id,
-            MessageKind::Work {
-                work_spec: "prepare".into(),
-            },
-        ))
-        .unwrap();
-    my_sleep();
-    server_tx
-        .send((
-            id,
-            MessageKind::Work {
-                work_spec: "work-1".into(),
-            },
-        ))
-        .unwrap();
-    my_sleep();
-    server_tx
-        .send((
-            id,
-            MessageKind::ChangeEpoch {
-                epoch: "epoch-2".into(),
-            },
-        ))
-        .unwrap();
-    my_sleep();
-    server_tx
-        .send((
-            id,
-            MessageKind::Work {
-                work_spec: "work-2".into(),
-            },
-        ))
-        .unwrap();
-    my_sleep();
-    server_tx
-        .send((
-            id,
-            MessageKind::Work {
-                work_spec: "work-3".into(),
-            },
-        ))
-        .unwrap();
-    my_sleep();
-    server_tx
-        .send((
-            id,
-            MessageKind::Work {
-                work_spec: "work-4".into(),
-            },
-        ))
-        .unwrap();
-    my_sleep();
-    server_tx
-        .send((
-            id,
-            MessageKind::Work {
-                work_spec: "work-5".into(),
-            },
-        ))
-        .unwrap();
-    my_sleep();
-    server_tx
-        .send((
-            id,
-            MessageKind::Work {
-                work_spec: "work-6".into(),
-            },
-        ))
-        .unwrap();
-    my_sleep();
-}
+// ============================================================================
+// Главная функция: демонстрация работы
+// ============================================================================
 
 fn main() {
-    println!("Hello, world!");
-    let (server_tx, server_rx) = mpsc::channel();
-    let success_count = Arc::new(AtomicUsize::new(0));
+    println!("=== Actor-based Server System ===\n");
 
-    let success_count_cloned = success_count.clone();
-    let server =
-        thread::spawn(move || balance(server_rx, 4, success_count_cloned));
-    let (tx1, tx2, tx3) =
-        (server_tx.clone(), server_tx.clone(), server_tx.clone());
-    let clients = [
-        thread::spawn(move || client1(tx1)),
-        thread::spawn(move || client2(tx2)),
-        thread::spawn(move || client3(tx3)),
-    ];
-    for client in clients {
-        client.join().unwrap();
-    }
-    server_tx.send((0, MessageKind::FinishAll)).unwrap();
-    server.join().unwrap();
-    println!("\nDone jobs = {}", success_count.load(Ordering::SeqCst));
+    let state = SharedState::new();
+    let mut client = Client::new(state.clone());
+    let mut client1 = Client::new(state.clone());
+
+    // Спауним 3 сервера
+    client.spawn_server();
+    client.spawn_server();
+    client.spawn_server();
+    client1.spawn_server();
+    client1.spawn_server();
+
+    thread::sleep(Duration::from_millis(100));
+
+    // Клиент увеличивает счётчик (это изменит состояние для всех серверов)
+    println!("\n--- Incrementing counter via client ---");
+    client.increment_counter();
+    thread::sleep(Duration::from_millis(100));
+
+    // Брокаст команды увеличения счётчика серверам
+    println!("\n--- Broadcasting IncrementCounter to servers ---");
+    client.broadcast_command(Command::IncrementCounter);
+    thread::sleep(Duration::from_millis(200));
+
+    // Меняем эпоху на уровне клиента
+    println!("\n--- Setting epoch via client ---");
+    client.set_epoch("epoch_alpha".to_string());
+    thread::sleep(Duration::from_millis(100));
+
+    // Брокаст команды изменения эпохи
+    println!("\n--- Broadcasting SetEpoch to servers ---");
+    client.broadcast_command(Command::SetEpoch("epoch_beta".to_string()));
+    thread::sleep(Duration::from_millis(200));
+
+    // Порождаем новый сервер
+    println!("\n--- Spawning new server ---");
+    client.spawn_server();
+    thread::sleep(Duration::from_millis(100));
+
+    // Отправляем команды новому серверу
+    println!("\n--- Broadcasting to all servers (including new one) ---");
+    client.broadcast_command(Command::IncrementCounter);
+    thread::sleep(Duration::from_millis(200));
+
+    // Отправляем команды со второго клиента
+    client1.broadcast_command(Command::SetEpoch("epoch_delta".to_string()));
+    client1.broadcast_command(Command::IncrementCounter);
+
+    // Завершаем все серверы
+    println!("\n--- Shutting down all servers ---");
+    client.shutdown_all();
+    client1.shutdown_all();
+
+    println!("\n=== System shutdown complete ===");
 }
