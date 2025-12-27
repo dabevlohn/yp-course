@@ -1,6 +1,5 @@
 use std::collections::HashSet;
 
-// Вспомогательный комбинатор итераторов
 enum EitherIt<It1, It2> {
     It1(It1),
     It2(It2),
@@ -19,7 +18,6 @@ where
     }
 }
 
-// Исправляет строки: заглавные после точек, термины (сравниваем регистро-независимо) - по шаблону
 fn fix(
     bytes_to_fix: &str,
     set_of_labels: &HashSet<String>,
@@ -73,7 +71,6 @@ fn fix(
         .collect()
 }
 
-// Делит строку на более-менее равные части
 fn split_n_impl(
     bytes: &[u8],
     from_idx: usize,
@@ -113,11 +110,16 @@ fn run_parallel(string: String, set_of_labels: &HashSet<String>) -> String {
     std::thread::scope(|scope| {
         let threads_count = 4;
         let parts = split_n(&string, threads_count);
-
+        let threads = parts
+            .into_iter()
+            .enumerate()
+            .map(|(id, part)| scope.spawn(move || fix(part, set_of_labels, id)))
+            .collect::<Vec<_>>();
         let mut result = String::new();
-
-        // <место для кода с порождением потоков fix()>
-
+        for thread in threads {
+            let done_part = thread.join().unwrap();
+            result.extend(done_part.chars());
+        }
         result.truncate(result.len() - 1); // убираем завершающий пробел
         result
     })
@@ -174,10 +176,14 @@ fn main() {
         "Pingora",
     ];
 
-    let result: String;
-
-    // <место для кода с порождением потока run_parallel()>
-
+    let result = std::thread::spawn(move || {
+        run_parallel(
+            mix.to_string(),
+            &dict.into_iter().map(String::from).collect(),
+        )
+    })
+    .join()
+    .unwrap();
     println!("{}", result);
     assert_eq!(result, orig);
 }
