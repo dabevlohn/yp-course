@@ -5,7 +5,7 @@ rust-version = "1.91"
 resolver = "2"
 members = [
     "bank-system",
-    "my-bank", "my_macros",
+    "my-bank", "my_macros", "vault",
 ]
 
 [workspace.metadata.publish]
