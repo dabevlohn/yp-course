@@ -89,6 +89,28 @@ pub fn handle_client(stream: TcpStream, vault: Arc<Mutex<Vault>>) {
                             .unwrap_or_else(|| "Vault is empty\n".to_string())
                     }
 
+                    Some("TAKE") => {
+                        let id =
+                            parts.next().and_then(|s| s.parse::<u32>().ok());
+                        let name = parts.next();
+
+                        if let (Some(id), Some(name)) = (id, name) {
+                            let mut v = vault.lock().unwrap();
+                            match v.take(id, name) {
+                                Ok(_) => "OK: item taken\n".to_string(),
+                                Err(VaultError::CellNotFound) => {
+                                    "ERROR: cell not found\n".to_string()
+                                }
+                                Err(VaultError::ItemNotFound) => {
+                                    "ERROR: item not found\n".to_string()
+                                }
+                                _ => "ERROR: unknown\n".to_string(),
+                            }
+                        } else {
+                            "ERROR: usage TAKE <id> <name>\n".to_string()
+                        }
+                    }
+
                     Some("EXIT") => {
                         let _ = writer.write_all(b"BYE\n");
                         let _ = writer.flush();
