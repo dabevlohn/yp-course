@@ -1,8 +1,11 @@
-use std::io::BufRead;
-use std::io::BufReader;
-use std::io::Write;
-use std::net::TcpStream;
-use std::sync::{Arc, Mutex};
+use std::time::Duration;
+use std::{
+    io::{BufRead, BufReader, Write},
+    net::TcpStream,
+    sync::{Arc, Mutex},
+};
+
+use rand::Rng;
 
 use crate::vault::{Item, Vault, VaultError};
 
@@ -109,6 +112,15 @@ pub fn handle_client(stream: TcpStream, vault: Arc<Mutex<Vault>>) {
                         } else {
                             "ERROR: usage TAKE <id> <name>\n".to_string()
                         }
+                    }
+
+                    Some("PING") => {
+                        let mut rng = rand::rng();
+
+                        // Случайная задержка от 1 до 5 секунд
+                        let delay_secs = rng.random_range(1..=5);
+                        std::thread::sleep(Duration::from_secs(delay_secs));
+                        "PONG\n".to_string()
                     }
 
                     Some("EXIT") => {
