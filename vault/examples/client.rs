@@ -1,44 +1,15 @@
 use socket2::{Domain, Protocol, Socket, Type};
 use std::io::{self, BufRead, BufReader, Write};
 use std::net::{SocketAddr, TcpStream};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
-enum ConnectionResult {
-    Exit,
-    Lost,
-}
-
-fn main() {
-    let addr: SocketAddr = "127.0.0.1:7878".parse().unwrap();
-
-    loop {
-        // пробуем подключиться
-        match connect(&addr) {
-            Ok(stream) => {
-                println!("Connected to server!");
-                match handle_connection(stream) {
-                    ConnectionResult::Exit => break,
-                    ConnectionResult::Lost => {
-                        println!("Connection lost. Reconnecting in 2s...");
-                        thread::sleep(Duration::from_secs(2));
-                    }
-                }
-            }
-            Err(err) => {
-                eprintln!("Connect failed: {}. Retrying in 2s...", err);
-                thread::sleep(Duration::from_secs(2));
-            }
-        }
-    }
-}
-
-fn connect(addr: &SocketAddr) -> io::Result<TcpStream> {
+// Подключение к серверу
+fn connect() -> io::Result<(TcpStream, BufReader<TcpStream>)> {
     let socket = Socket::new(Domain::IPV4, Type::STREAM, Some(Protocol::TCP))?;
 
-    // Включаем TCP keepalive
     socket.set_keepalive(true)?;
-
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     {
         socket.set_tcp_keepalive(
@@ -48,101 +19,38 @@ fn connect(addr: &SocketAddr) -> io::Result<TcpStream> {
         )?;
     }
 
-    socket.connect(&addr.clone().into())?;
+    let addr: SocketAddr = "127.0.0.1:7878".parse().unwrap();
+    socket.connect(&addr.into())?;
+
     let stream: TcpStream = socket.into();
+    stream.set_read_timeout(Some(Duration::from_secs(5)))?;
+    let mut reader = BufReader::new(stream.try_clone()?);
 
-    // тайм-аут на чтение
-    stream.set_read_timeout(Some(Duration::from_secs(3)))?;
-
-    Ok(stream)
-}
-
-fn handle_connection(stream: TcpStream) -> ConnectionResult {
-    let mut reader = BufReader::new(stream.try_clone().unwrap());
-    let stdin = io::stdin();
-
-    // читаем приветствие
+    // Читаем welcome message один раз
     let mut line = String::new();
-    if reader.read_line(&mut line).is_ok() {
-        print!("{}", line);
-    }
+    reader.read_line(&mut line)?;
+    print!("{}", line);
 
+    println!("Connected to server!");
+    Ok((stream, reader))
+}
+
+// Реконнект
+fn reconnect() -> (TcpStream, BufReader<TcpStream>) {
     loop {
-        print!("vault> ");
-        io::stdout().flush().unwrap();
-
-        let mut input = String::new();
-        if stdin.read_line(&mut input).is_err() {
-            return ConnectionResult::Lost;
-        }
-
-        let trimmed = input.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-
-        // EXIT — выходим из клиента
-        if trimmed.eq_ignore_ascii_case("EXIT") {
-            println!("Bye!");
-            return ConnectionResult::Exit;
-        }
-
-        // PING — измеряем задержку
-        if trimmed.eq_ignore_ascii_case("PING") {
-            match send_ping(&stream, &mut reader) {
-                Ok(latency) => println!("PONG (latency: {}ms)", latency),
-                Err(e) => {
-                    println!("ERROR: server unreachable ({})", e);
-                    return ConnectionResult::Lost;
-                }
-            }
-            continue;
-        }
-
-        // любые другие команды
-        match send_command(&stream, &mut reader, trimmed) {
-            Ok(response) => print!("{}", response),
+        match connect() {
+            Ok(pair) => return pair,
             Err(e) => {
-                println!("ERROR: connection lost ({})", e);
-                return ConnectionResult::Lost;
+                eprintln!("Reconnect failed: {}. Retrying in 2s...", e);
+                thread::sleep(Duration::from_secs(2));
             }
         }
     }
 }
 
-fn send_ping(
-    mut stream: &TcpStream,
-    reader: &mut BufReader<TcpStream>,
-) -> io::Result<u64> {
-    let start = Instant::now();
-
-    stream.write_all(b"PING\n")?;
-    stream.flush()?;
-
-    let mut buffer = String::new();
-    let bytes = reader.read_line(&mut buffer)?;
-
-    if bytes == 0 {
-        return Err(io::Error::new(
-            io::ErrorKind::UnexpectedEof,
-            "Server closed connection",
-        ));
-    }
-
-    let elapsed = start.elapsed().as_millis() as u64;
-
-    if buffer.trim() == "PONG" {
-        Ok(elapsed)
-    } else {
-        Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "Invalid PING response",
-        ))
-    }
-}
-
+// Отправка команды
 fn send_command(
-    mut stream: &TcpStream,
+    stream: &mut TcpStream,
     reader: &mut BufReader<TcpStream>,
     command: &str,
 ) -> io::Result<String> {
@@ -152,14 +60,99 @@ fn send_command(
 
     let mut buffer = String::new();
     let bytes = reader.read_line(&mut buffer)?;
-
     if bytes == 0 {
-        // сервер закрыл соединение
+        return Err(io::Error::new(
+            io::ErrorKind::UnexpectedEof,
+            "Server closed connection",
+        ));
+    }
+    Ok(buffer)
+}
+
+// Отправка PING
+fn send_ping(
+    stream: &mut TcpStream,
+    reader: &mut BufReader<TcpStream>,
+) -> io::Result<u64> {
+    let start = Instant::now();
+    stream.write_all(b"PING\n")?;
+    stream.flush()?;
+
+    let mut buffer = String::new();
+    let bytes = reader.read_line(&mut buffer)?;
+    if bytes == 0 {
         return Err(io::Error::new(
             io::ErrorKind::UnexpectedEof,
             "Server closed connection",
         ));
     }
 
-    Ok(buffer)
+    if buffer.trim() == "PONG" {
+        Ok(start.elapsed().as_millis() as u64)
+    } else {
+        Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("Invalid response: {}", buffer),
+        ))
+    }
+}
+
+fn main() -> io::Result<()> {
+    let (stream, reader) = connect()?;
+    let stream = Arc::new(Mutex::new(stream));
+    let reader = Arc::new(Mutex::new(reader));
+
+    // Keepalive-поток
+    {
+        let stream_clone = Arc::clone(&stream);
+        let reader_clone = Arc::clone(&reader);
+
+        // Ваш код здесь
+        thread::spawn(move || loop {
+            thread::sleep(Duration::from_secs(10));
+            let mut s = stream_clone.lock().unwrap();
+            let mut r = reader_clone.lock().unwrap();
+
+            if let Err(e) = send_ping(&mut *s, &mut *r) {
+                eprintln!("Keepalive failed. Reconnecting... {:?}", e);
+                let (new_s, new_r) = reconnect();
+                *s = new_s;
+                *r = new_r;
+            }
+        });
+    }
+
+    // Основной интерактивный цикл
+    let stdin = io::stdin();
+    loop {
+        print!("vault> ");
+        io::stdout().flush()?;
+
+        let mut input = String::new();
+        stdin.read_line(&mut input)?;
+        let command = input.trim();
+
+        if command.is_empty() {
+            continue;
+        }
+        if command.eq_ignore_ascii_case("EXIT") {
+            println!("Bye!");
+            break;
+        }
+
+        let mut s = stream.lock().unwrap();
+        let mut r = reader.lock().unwrap();
+
+        match send_command(&mut *s, &mut *r, command) {
+            Ok(resp) => print!("{}", resp),
+            Err(e) => {
+                eprintln!("Command failed: {}. Reconnecting...", e);
+                let (new_s, new_r) = reconnect();
+                *s = new_s;
+                *r = new_r;
+            }
+        }
+    }
+
+    Ok(())
 }
